@@ -1,3 +1,7 @@
+from requests.auth import HTTPBasicAuth
+from conans.client.rest.file_uploader import FileUploader
+from conans.client.rest import response_to_str
+from conans.client.rest.file_downloader import FileDownloader
 import os
 import shutil
 from threading import Lock
@@ -5,7 +9,7 @@ from threading import Lock
 from six.moves.urllib_parse import urlsplit, urlunsplit
 
 from conans.client.tools.files import check_md5, check_sha1, check_sha256
-from conans.errors import ConanException
+from conans.errors import AuthenticationException, ConanException, ForbiddenException
 from conans.util.files import mkdir
 from conans.util.locks import SimpleLock
 from conans.util.sha import sha256 as sha256_sum
@@ -89,3 +93,68 @@ class CachedFileDownloader(object):
             url += checksum
         h = sha256_sum(url.encode())
         return h
+
+
+class NetCachedFileDownloader(FileDownloader, FileUploader):
+    """
+    Caches a file download in an intermediary repository.
+
+    That is, this class's .download(url) method will .upload() to an alternate
+    location if config.net_cache and config.net_cache_url.format(url) does not
+    return a 200 OK from a HEAD method.
+    """
+
+    def __init__(self, requester, output, verify, config):
+        super(NetCachedFileDownloader, self).__init__(requester, output, verify, config)
+
+    def download(self, url, file_path=None, auth=None, retry=None, retry_wait=None, overwrite=False,
+                 headers=None, netcache_auth=None):
+        if self._config.net_cache:
+            # TODO: Make a netcache_url that fits the constraints of Artifactory/Conan Server
+            netcache_url = self._config.net_cache_url.format(url)
+            netcache_auth = None
+            if self._config.net_cache_username and self._config.net_cache_password:
+                netcache_auth = HTTPBasicAuth(self._config.net_cache_username, self._config.net_cache_password)
+
+            if self.is_file_in_netcache(self, netcache_url, netcache_auth, retry, retry_wait, headers):
+                return self.download_from_netcache(netcache_url, file_path, netcache_auth, retry, retry_wait, overwrite, headers)
+            else:
+                self.download_upstream(url, file_path, auth, retry, retry_wait, overwrite, headers)
+                return self.save_onto_netcache(netcache_url, file_path, netcache_auth, retry, retry_wait, overwrite, headers)
+        else:
+            return super(NetCachedFileDownloader, self).download(url, file_path, auth, retry, retry_wait, overwrite)
+
+    def is_file_in_netcache(self, url, auth, retry, retry_wait, headers):
+        self._call_with_retry(self._output, retry, retry_wait, self._is_file_in_netcache, url, auth, headers)
+
+    def _is_file_in_netcache(self, url, auth, headers):
+        try:
+            response = self._requester.head(url, stream=False, verify=self._verify_ssl, auth=auth,
+                                        headers=headers)
+        except Exception as exc:
+            raise ConanException("Error checking file in netcache %s: '%s'" % (url, exc))
+
+        if response.ok:
+            return True
+        else:
+            if response.status_code == 404:
+                return False
+            elif response.status_code == 403:
+                if auth is None or (hasattr(auth, "token") and auth.token is None):
+                    # TODO: This is a bit weird, why this conversion? Need to investigate (this came from conans.client.rest.file_downloader)
+                    raise AuthenticationException(response_to_str(response))
+                raise ForbiddenException(response_to_str(response))
+            elif response.status_code == 401:
+                raise AuthenticationException()
+            raise ConanException("Error %d checking for file in netcache %s" % (response.status_code, url))
+
+    def download_from_netcache(self, url, file_path, netcache_auth, retry, retry_wait, overwrite, headers):
+        return super(NetCachedFileDownloader, self).download(url, file_path, netcache_auth, retry, retry_wait, overwrite, headers)
+
+    def download_upstream(self, url, file_path, auth, retry, retry_wait, overwrite, headers):
+        return super(NetCachedFileDownloader, self).download(url, file_path, auth, retry, retry_wait, overwrite, headers)
+
+    def save_onto_netcache(self, url, file_path, netcache_auth, retry, retry_wait, overwrite, headers):
+        super(NetCachedFileDownloader, self).upload(
+            url, file_path, netcache_auth, dedup=False, retry=retry, retry_wait=retry_wait, headers=headers, display_name=None
+        )

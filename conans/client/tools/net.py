@@ -1,6 +1,6 @@
 import os
 
-from conans.client.rest.download_cache import CachedFileDownloader
+from conans.client.rest.download_cache import CachedFileDownloader, NetCachedFileDownloader
 from conans.client.rest.file_downloader import FileDownloader
 from conans.client.tools.files import check_md5, check_sha1, check_sha256, unzip
 from conans.errors import ConanException
@@ -89,7 +89,7 @@ def download(url, filename, verify=True, out=None, retry=None, retry_wait=None, 
 
     checksum = sha256 or sha1 or md5
 
-    downloader = FileDownloader(requester=requester, output=out, verify=verify, config=config)
+    downloader = NetCachedFileDownloader(requester=requester, output=out, verify=verify, config=config)
     if config and config.download_cache and checksum:
         downloader = CachedFileDownloader(config.download_cache, downloader, user_download=True)
 

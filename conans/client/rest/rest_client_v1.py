@@ -7,7 +7,7 @@ from six.moves.urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from conans.client.remote_manager import check_compressed_files
 from conans.client.rest.client_routes import ClientV1Router
-from conans.client.rest.download_cache import CachedFileDownloader
+from conans.client.rest.download_cache import CachedFileDownloader, NetCachedFileDownloader
 from conans.client.rest.file_uploader import FileUploader
 from conans.client.rest.rest_client_common import RestCommonMethods, handle_return_deserializer
 from conans.client.rest.file_downloader import FileDownloader
@@ -44,7 +44,7 @@ class RestV1Methods(RestCommonMethods):
 
         Its a generator, so it yields elements for memory performance
         """
-        downloader = FileDownloader(self.requester, None, self.verify_ssl, self._config)
+        downloader = NetCachedFileDownloader(self.requester, None, self.verify_ssl, self._config)
         download_cache = self._config.download_cache
         if download_cache:
             assert snapshot_md5 is not None, "if download_cache is set, we need the file checksums"
@@ -188,7 +188,7 @@ class RestV1Methods(RestCommonMethods):
 
         It writes downloaded files to disk (appending to file, only keeps chunks in memory)
         """
-        downloader = FileDownloader(self.requester, self._output, self.verify_ssl, self._config)
+        downloader = NetCachedFileDownloader(self.requester, self._output, self.verify_ssl, self._config)
         download_cache = self._config.download_cache
         if download_cache:
             assert snapshot_md5 is not None, "if download_cache is set, we need the file checksums"
@@ -282,7 +282,7 @@ class RestV1Methods(RestCommonMethods):
                         ret.append(tmp)
             return sorted(ret)
         else:
-            downloader = FileDownloader(self.requester, None, self.verify_ssl, self._config)
+            downloader = NetCachedFileDownloader(self.requester, None, self.verify_ssl, self._config)
             auth, _ = self._file_server_capabilities(urls[path])
             content = downloader.download(urls[path], auth=auth)
 

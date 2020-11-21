@@ -5,7 +5,7 @@ import traceback
 from conans import DEFAULT_REVISION_V1
 from conans.client.remote_manager import check_compressed_files
 from conans.client.rest.client_routes import ClientV2Router
-from conans.client.rest.download_cache import CachedFileDownloader
+from conans.client.rest.download_cache import CachedFileDownloader, NetCachedFileDownloader
 from conans.client.rest.file_uploader import FileUploader
 from conans.client.rest.rest_client_common import RestCommonMethods, get_exception_from_error
 from conans.client.rest.file_downloader import FileDownloader
@@ -41,7 +41,7 @@ class RestV2Methods(RestCommonMethods):
 
     def _get_remote_file_contents(self, url, use_cache, headers=None):
         # We don't want traces in output of these downloads, they are ugly in output
-        downloader = FileDownloader(self.requester, None, self.verify_ssl, self._config)
+        downloader = NetCachedFileDownloader(self.requester, None, self.verify_ssl, self._config)
         if use_cache and self._config.download_cache:
             downloader = CachedFileDownloader(self._config.download_cache, downloader)
         contents = downloader.download(url, auth=self.auth, headers=headers)
@@ -216,7 +216,7 @@ class RestV2Methods(RestCommonMethods):
             logger.debug("\nUPLOAD: All uploaded! Total time: %s\n" % str(time.time() - t1))
 
     def _download_and_save_files(self, urls, dest_folder, files, use_cache):
-        downloader = FileDownloader(self.requester, self._output, self.verify_ssl, self._config)
+        downloader = NetCachedFileDownloader(self.requester, self._output, self.verify_ssl, self._config)
         if use_cache and self._config.download_cache:
             downloader = CachedFileDownloader(self._config.download_cache, downloader)
         # Take advantage of filenames ordering, so that conan_package.tgz and conan_export.tgz
